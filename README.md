@@ -29,7 +29,7 @@ HF_HUB_OFFLINE=1 uv run python scripts/quick_eval.py ../jevbench   # 2-minute te
 | `RMDM_BACKEND` | `mlx` on Apple silicon | `mlx` (quantized MLX weights) or `torch` (bf16 reference, Transformers) |
 | `RMDM_MODEL` / `RMDM_REVISION` | 12B-it, pinned (4-bit on mlx, bf16 on torch) | e.g. `mlx-community/gemma-4-e4b-it-8bit` |
 | `RMDM_PROFILE` | `gemma4-12b-4bit-mlx` | calibration profile, from `src/rmdm/calibration.json` (`raw` = off) |
-| `RMDM_SYSTEMONE_TEMPERATURE` | `1.0` | temperature for the JevBench endpoint |
+| `RMDM_SERVED_NAME` | `rmdm-gemma4-12b` | model name reported by `GET /v1/models` and in System One answers |
 | `RMDM_PORT` | `8009` | |
 
 ## API
@@ -85,7 +85,15 @@ JSON only:
 curl -s localhost:8009/v1/decisions -H 'Content-Type: application/json' -d @examples/07-ticket-triage.json | jq '{decision, probabilities}'
 ```
 
-`POST /v1/systemone` speaks JevBench's `typesafe` wire format (text only) for the benchmark baseline.
+`POST /v1/systemone` speaks TypeSafe's System One format (`state`, `assets`, a `questions` map of `choice`,
+`noul` and `score`), and `GET /v1/models` lists the served model. That is what a Rational platform
+`SystemOneCompatible` connector calls (base URL `http://<host>:8009/v1`), so the platform's decision API
+(`POST /api/compat/v0/typesafe/v1/systemone`) can route to this runtime; JevBench's `typesafe` adapter uses
+the same endpoint.
+
+`examples/rational-view/decisions-view.jsx` is a Rational Knowledge custom view that calls that decision API:
+image resources in the categories `Labels` or `Signs` are the photos, and images in `Examples` become options
+defined only by their picture.
 
 ## How the readout works
 

@@ -1,9 +1,10 @@
 """Local HTTP server. No outbound network: the model, the images and the calibration profiles are all local.
 
 POST /v1/decisions   Rational's multimodal decision API (README.md)
-POST /v1/systemone   JevBench's `typesafe` wire format, text only, for the benchmark baseline
+POST /v1/systemone   TypeSafe's System One format (Rational's decision API and JevBench)
+GET  /v1/models      model list for System One clients
 
-    uv run python -m rmdm.server            # RMDM_PORT (8009), RMDM_PROFILE (default), RMDM_SYSTEMONE_TEMPERATURE (1.0)
+    uv run python -m rmdm.server            # RMDM_PORT (8009), RMDM_PROFILE, RMDM_SERVED_NAME (rmdm-gemma4-12b)
 
 One request at a time: there is one model on one GPU, and the server is single-threaded on purpose.
 """
@@ -30,7 +31,8 @@ from .readout import distribution
 
 PROFILES = json.loads((Path(__file__).parent / "calibration.json").read_text())
 DEFAULT_PROFILE = os.environ.get("RMDM_PROFILE", "gemma4-12b-4bit-mlx")
-SYSTEMONE_TEMPERATURE = float(os.environ.get("RMDM_SYSTEMONE_TEMPERATURE", "1.0"))
+SERVED_NAME = os.environ.get("RMDM_SERVED_NAME", "rmdm-gemma4-12b")
+RELEASE_DATE = "2026-10-16"
 ABSTAIN = {"id": "human_review",
            "description": "The evidence is insufficient, contradictory, or none of the other options applies: "
                           "request human review."}
@@ -55,6 +57,15 @@ def decode_image(data) -> Image.Image:
         raise BadRequest(f"unreadable image: {e}") from e
 
 
+def asset_data(asset):
+    """An asset is base64 text, or TypeSafe's {"type": "image", "format": ..., "data_base64": ...} object."""
+    if isinstance(asset, dict):
+        if "data_base64" not in asset:
+            raise BadRequest("assets must carry data_base64 (multipart parts are not supported)")
+        return asset["data_base64"]
+    return asset
+
+
 class Images:
     """Turns asset references in request strings into image markers, collecting the images in text order.
 
@@ -66,7 +77,7 @@ class Images:
         if not isinstance(assets, dict):
             raise BadRequest("'assets' must be an object mapping reference strings to base64 images")
         self.marker = engine.image_marker
-        self.images = {ref: decode_image(data) for ref, data in assets.items()}
+        self.images = {ref: decode_image(asset_data(data)) for ref, data in assets.items()}
         if any(not ref.strip() for ref in self.images):
             raise BadRequest("an asset reference cannot be empty")
         self.pattern = re.compile("|".join(map(re.escape, sorted(self.images, key=len, reverse=True))) or "(?!)")
@@ -213,35 +224,57 @@ def decide(engine: Engine, body: dict) -> dict:
 
 
 def systemone(engine: Engine, body: dict) -> dict:
-    """JevBench `typesafe`: choice ({label: criteria}), score ([level, ...]) and noul ({"true": .., "false": ..})."""
-    q = (body.get("questions") or {}).get("decision")
-    if not isinstance(q, dict):
-        raise BadRequest("expected questions.decision")
-    kind, criteria = q.get("type"), q.get("criteria")
-    if kind == "score" and isinstance(criteria, list):
-        labeled = [(str(i), c) for i, c in enumerate(criteria)]
-    elif kind in ("choice", "noul") and isinstance(criteria, dict):
-        labeled = list(criteria.items())
-    else:
-        raise BadRequest(f"unsupported question {kind!r} / criteria")
-    instructions = q.get("instructions") or ""
-    if not isinstance(instructions, str):
-        instructions = json.dumps(instructions, ensure_ascii=False)
-    text = decision_text(render_state(body.get("state") or ""), instructions, [str(c) for _, c in labeled])
-    try:
-        scores, prompt_tokens = engine.scores(text, [], len(labeled))
-    except ValueError as e:
-        raise BadRequest(str(e)) from e
-    probs = dict(zip((label for label, _ in labeled), distribution(scores, SYSTEMONE_TEMPERATURE)))
-    if kind == "noul":
-        true_key = next((k for k in probs if str(k).lower() == "true"), None)
-        if true_key is None:
-            raise BadRequest("noul criteria have no 'true' key")
-        answer = {"type": "noul", "noul": probs[true_key]}
-    else:
-        answer = {"type": kind, "choice": max(probs, key=probs.get), "probabilities": probs}
-    return {"model": engine.model_id, "answers": {"decision": answer},
-            "usage": {"prompt_tokens": prompt_tokens, "completion_tokens": 1, "total_tokens": prompt_tokens + 1}}
+    """TypeSafe's System One wire format: `state`, optional `assets`, and a `questions` map of choice
+    ({option: description or null}), noul ({"true": .., "false": ..}, both optional) and score ([level, ...]).
+    Rational's decision API (POST /api/compat/v0/typesafe/v1/systemone) forwards here through a
+    SystemOneCompatible connector; JevBench's `typesafe` adapter speaks the same format."""
+    state, questions = body.get("state"), body.get("questions")
+    if state is None or not isinstance(questions, dict) or not questions:
+        raise BadRequest("expected 'state' and a nonempty 'questions' object")
+    decisions = {}
+    for name, q in questions.items():
+        kind, criteria = (q or {}).get("type"), (q or {}).get("criteria")
+        if kind == "choice" and isinstance(criteria, dict) and criteria:
+            options = [{"id": k, "description": k if v is None else v} for k, v in criteria.items()]
+        elif kind == "noul" and isinstance(criteria or {}, dict):
+            criteria = criteria or {}
+            # keep the caller's order of true/false: it is part of the prompt the model reads
+            keys = [k for k in criteria if k in ("true", "false")] or ["true", "false"]
+            keys += [k for k in ("true", "false") if k not in keys]
+            defaults = {"true": "Yes.", "false": "No."}
+            options = [{"id": k, "description": criteria.get(k) or defaults[k]} for k in keys]
+        elif kind == "score" and isinstance(criteria, list) and len(criteria) >= 2:
+            options = [{"id": str(i), "description": level} for i, level in enumerate(criteria)]
+        else:
+            raise BadRequest(f"questions.{name}: unsupported type {kind!r} or criteria")
+        decisions[name] = {"instructions": q.get("instructions") or "", "options": options}
+    part = {"type": "text", "text": state} if isinstance(state, str) else {"type": "json", "value": state}
+    result = decide(engine, {"input": [part], "assets": body.get("assets") or {}, "decisions": decisions})
+
+    answers, input_tokens = {}, 0
+    for name, q in questions.items():
+        a = result["answers"][name]
+        input_tokens += a["usage"]["input_tokens"]
+        p = a["probabilities"]
+        if q["type"] == "noul":
+            answers[name] = {"type": "noul", "noul": p["true"]}
+        elif q["type"] == "score":
+            answers[name] = {"type": "score", "score": int(a["decision"]), "probabilities": p}
+        else:
+            answers[name] = {"type": "choice", "choice": a["decision"], "probabilities": p}
+        answers[name]["raw_probabilities"] = a["raw_probabilities"]
+    outputs = len(answers)
+    return {"model": SERVED_NAME, "answers": answers,
+            "usage": {"input_tokens": input_tokens, "output_tokens": outputs,
+                      # JevBench's harness reads the OpenAI-style names
+                      "prompt_tokens": input_tokens, "completion_tokens": outputs,
+                      "total_tokens": input_tokens + outputs}}
+
+
+def models(engine: Engine) -> dict:
+    """The provider model list Rational reads when a System One connector is tested or listed."""
+    return {"models": [{"name": SERVED_NAME, "release_date": RELEASE_DATE,
+                        "description": f"Decision model on {engine.model_id} (frozen), one-token readout, local"}]}
 
 
 ROUTES = {"/v1/decisions": decide, "/v1/systemone": systemone}
@@ -257,12 +290,28 @@ def serve(engine: Engine, port: int):
             self.end_headers()
             self.wfile.write(payload)
 
+        def _body(self) -> bytes:
+            # Rational's backend forwards with chunked transfer encoding, without Content-Length
+            if "chunked" not in self.headers.get("Transfer-Encoding", "").lower():
+                return self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            chunks = []
+            while (size := int(self.rfile.readline().split(b";")[0].strip() or b"0", 16)):
+                chunks.append(self.rfile.read(size))
+                self.rfile.readline()
+            self.rfile.readline()
+            return b"".join(chunks)
+
+        def do_GET(self):
+            if self.path.rstrip("/") == "/v1/models":
+                return self._send(200, models(engine))
+            self._send(404, {"error": "not found"})
+
         def do_POST(self):
             route = ROUTES.get(self.path)
             if route is None:
                 return self._send(404, {"error": "not found"})
             try:
-                body = json.loads(self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}")
+                body = json.loads(self._body() or b"{}")
                 if not isinstance(body, dict):
                     raise BadRequest("the body must be a JSON object")
                 self._send(200, route(engine, body))
