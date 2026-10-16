@@ -1,0 +1,38 @@
+{
+ "input": [
+  {
+   "type": "json",
+   "value": {
+    "table": "customers_export_2026_09",
+    "columns": [
+     "customer_id",
+     "full_name",
+     "email",
+     "date_of_birth",
+     "iban",
+     "loyalty_points"
+    ],
+    "destination": "external marketing agency"
+   }
+  }
+ ],
+ "decision": {
+  "id": "data_transfer",
+  "instructions": "Can this export be sent to the destination as it is?",
+  "options": [
+   {
+    "id": "allow",
+    "description": "Allow the transfer."
+   },
+   {
+    "id": "minimise",
+    "description": "Allow only after removing unnecessary personal data."
+   },
+   {
+    "id": "block",
+    "description": "Block the transfer."
+   }
+  ],
+  "abstain": true
+ }
+}

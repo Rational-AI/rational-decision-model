@@ -1,0 +1,30 @@
+{
+ "input": [
+  {
+   "type": "text",
+   "text": "Subject: URGENT - production line 2 stopped\n\nHi, since 06:40 the labelling machine on line 2 shows error E-214 and the whole line is stopped. We restarted it twice. 40 operators are waiting. Please call me at extension 318.\n\nMarco, shift supervisor"
+  }
+ ],
+ "decision": {
+  "id": "priority",
+  "instructions": "Assign a priority to this support ticket.",
+  "options": [
+   {
+    "id": "p1",
+    "description": "Critical: production stopped, act now."
+   },
+   {
+    "id": "p2",
+    "description": "High: degraded service, act today."
+   },
+   {
+    "id": "p3",
+    "description": "Normal: handle in the regular queue."
+   },
+   {
+    "id": "p4",
+    "description": "Low: question or request with no impact."
+   }
+  ]
+ }
+}

@@ -1,0 +1,38 @@
+{
+ "input": [
+  {
+   "type": "json",
+   "value": {
+    "tool": "erp.create_invoice",
+    "attempt": 2,
+    "max_attempts": 3,
+    "error": {
+     "http_status": 409,
+     "message": "Invoice number 2026-119 already exists"
+    }
+   }
+  }
+ ],
+ "decision": {
+  "id": "retry_policy",
+  "instructions": "The tool call failed. What should the agent do?",
+  "options": [
+   {
+    "id": "retry",
+    "description": "Retry the same call."
+   },
+   {
+    "id": "retry_later",
+    "description": "Wait and retry later."
+   },
+   {
+    "id": "stop_report",
+    "description": "Stop and report the error: retrying cannot succeed."
+   },
+   {
+    "id": "ask_user",
+    "description": "Ask the user how to proceed."
+   }
+  ]
+ }
+}

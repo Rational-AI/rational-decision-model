@@ -1,0 +1,7 @@
+{
+  "raw": {"temperature": 1.0, "note": "uncalibrated"},
+  "gemma4-12b-4bit-mlx": {
+    "temperature": 3.7,
+    "note": "NLL fit on cygnet-recipe calibration/items.jsonl (241 items, none from JevBench); reads in calibration/12b-4bit-mlx-reads.jsonl; held-out ECE 0.184 -> 0.108 at T = 3.2 fitted on the other half"
+  }
+}

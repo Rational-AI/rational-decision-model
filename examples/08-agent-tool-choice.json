@@ -1,0 +1,38 @@
+{
+ "input": [
+  {
+   "type": "text",
+   "text": "User message: 'Can you tell me how many open orders customer Bianchi has, and send him a reminder for the overdue ones?'"
+  },
+  {
+   "type": "json",
+   "value": {
+    "conversation_step": 1,
+    "known_customer_id": null
+   }
+  }
+ ],
+ "decision": {
+  "id": "next_tool",
+  "instructions": "Which tool should the agent call first?",
+  "options": [
+   {
+    "id": "search_customer",
+    "description": "search_customer: find a customer id by name."
+   },
+   {
+    "id": "list_orders",
+    "description": "list_orders: list the orders of a customer id."
+   },
+   {
+    "id": "send_email",
+    "description": "send_email: send an email to a customer id."
+   },
+   {
+    "id": "answer",
+    "description": "No tool: answer the user directly."
+   }
+  ],
+  "abstain": true
+ }
+}

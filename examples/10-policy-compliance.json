@@ -1,0 +1,27 @@
+{
+ "input": [
+  {
+   "type": "text",
+   "text": "Company policy: supplier contracts may not include automatic renewal for more than 12 months, and any renewal must allow termination with at most 90 days' notice."
+  },
+  {
+   "type": "text",
+   "text": "Contract clause 14.2: 'This agreement renews automatically for successive periods of 24 months unless either party gives written notice of termination at least 180 days before the end of the current period.'"
+  }
+ ],
+ "decision": {
+  "id": "compliance",
+  "instructions": "Does the clause comply with the policy?",
+  "options": [
+   {
+    "id": "compliant",
+    "description": "Compliant."
+   },
+   {
+    "id": "non_compliant",
+    "description": "Not compliant."
+   }
+  ],
+  "abstain": true
+ }
+}
